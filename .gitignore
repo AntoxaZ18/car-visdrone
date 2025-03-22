@@ -1,0 +1,8 @@
+*.pt
+/VisDrone2019-DET-val
+/VisDrone2019-DET-train
+/VisDrone2019-DET-test-dev
+/VisDrone2019-DET-test-challenge
+/runs
+/.venv
+*.zip
