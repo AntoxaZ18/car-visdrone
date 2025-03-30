@@ -19,7 +19,7 @@ def visdrone2yolo(dir, classes=None):
     def convert_file(filename: str):
         img_size = None
         lines = []
-        with open(f'{dir}/annotations/{filename}.txt', 'r') as f:
+        with open(f'{dir}/annotations/{filename}.txt', 'r', encoding='utf-8') as f:
             
             for row in [row.split(',') for row in f.read().splitlines()]:
                 if row[4] == '0':
@@ -34,7 +34,7 @@ def visdrone2yolo(dir, classes=None):
                 lines.append(f"{cls} {' '.join(f'{x:.6f}' for x in box)}\n")
             
             if lines:
-                with open(f'{dir}/labels/{filename}.txt', 'w') as fl:
+                with open(f'{dir}/labels/{filename}.txt', 'w', encoding='utf-8') as fl:
                     data = ''.join(lines)
                     fl.write(data)  # write label.txt
 
@@ -59,7 +59,7 @@ def unlink_unused_files(path: str):
 
     with ThreadPoolExecutor() as executor:
         futures = [executor.submit(delete_image, file) for file in delta]
-        wait(futures, timeout=None, return_when=ALL_COMPLETED) 
+        wait(futures, timeout=None, return_when=ALL_COMPLETED)
 
 
 def dataset_convert(dataset_path, classes: dict[str:str] = None):
