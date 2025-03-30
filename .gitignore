@@ -5,6 +5,7 @@
 /VisDrone2019-DET-test-challenge
 /runs
 /drone
+/drone_s
 /dataset
 /.venv
 *.zip
