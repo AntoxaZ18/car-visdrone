@@ -5,15 +5,22 @@ from time import time
 from typing import List, Tuple
 from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
 
-import tensorrt as trt
 import sys
 
-print(trt.__version__)
 print(ort.__version__)
+
+def get_providers():
+    providers = [i for i in ort.get_available_providers() if any(val in i for val in ('CUDA', 'CPU'))]
+    modes = {
+        'CUDAExecutionProvider': 'gpu',
+        'CPUExecutionProvider': 'cpu'
+    }
+    providers = [modes.get(i) for i in providers]
+    return providers
 
 
 class YoloONNX():
-    def __init__(self, path: str, session_options=None, mode='cpu', batch=1) -> None:
+    def __init__(self, path: str, session_options=None, mode='cpu', batch=1, confidence=0.5) -> None:
 
         sess_options = ort.SessionOptions()
 
@@ -38,12 +45,12 @@ class YoloONNX():
         self.input_height = 640
         self.batch = batch
 
-        self.iou_thres = 0.8
-        self.confidence_thres = 0.4
+        self.iou = 0.8
+        self.confidence_thres = confidence
         self.input_size = (640, 640)
         self.classes = ['cars', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
         self.color_palette = np.random.uniform(0, 255, size=(len(self.classes), 3))
-        self.executor = ThreadPoolExecutor()
+        self.executor = ThreadPoolExecutor(max_workers=self.batch)
 
 
     def _image_preprocess(self, bgr_frame) -> np.ndarray:
@@ -154,6 +161,7 @@ class YoloONNX():
             (np.ndarray): The input image with detections drawn on it.
         """
         # Transpose and squeeze the output to match the expected shape
+
         outputs = np.transpose(np.squeeze(output[0]))
 
         # Calculate the scaling factors for the bounding box coordinates
@@ -185,7 +193,7 @@ class YoloONNX():
 
         boxes = np.column_stack((left, top, width, height)).tolist()
 
-        indices = cv2.dnn.NMSBoxes(boxes, scores, self.confidence_thres, self.iou_thres)
+        indices = cv2.dnn.NMSBoxes(boxes, scores, self.confidence_thres, self.iou)
 
         # Iterate over the selected indices after non-maximum suppression
         for i in indices:
@@ -201,7 +209,7 @@ class YoloONNX():
         return input_image
 
 
-    def __call__(self, image: np.ndarray) -> np.ndarray:
+    def __call__(self, images: np.ndarray) -> np.ndarray:
         """return image of object if they are on image. Return only one object with highest score"""
 
         # tensor_image, pad = self._image_preprocess(image)
@@ -218,7 +226,7 @@ class YoloONNX():
 
         # return results[0]
         
-        images = [image for i in range(self.batch)]
+        # images = [image for i in range(self.batch)]
         
 
         if self.mode == 'gpu':
@@ -229,21 +237,28 @@ class YoloONNX():
     
     def call_gpu(self, images:List[np.ndarray]):
 
-        futures = [self.executor.submit(self._image_preprocess, image) for image in images]
-        wait(futures, return_when=ALL_COMPLETED)
-        tensor_images = [f.result() for f in futures]
+        # futures = [self.executor.submit(self._image_preprocess, image) for image in images]
+        # wait(futures, return_when=ALL_COMPLETED)
+        # tensor_images = [f.result() for f in futures]
+
+        tensor_images = [self._image_preprocess(image) for image in images]
 
         output_name = self.session.get_outputs()[0].name
         input_name = self.session.get_inputs()[0].name
 
-        batch = np.concatenate([img for (img, _) in tensor_images], axis=0)
-
-        model_outputs = self.session.run([output_name], {input_name: batch})
-
+        imgs = [img for (img, _) in tensor_images]
         pads = [pad for (_, pad) in tensor_images]
-        results = [self.postprocess(image, output, pad) for output, image, pad in zip(model_outputs, images, pads)]
 
-        return results[0]
+
+        batch = np.concatenate(imgs, axis=0)
+        
+        outputs = self.session.run([output_name], {input_name: batch})
+        
+        predictions = outputs[0]
+
+        results = [self.postprocess(image, np.expand_dims(predictions[idx], axis=0), pad) for image, idx, pad in zip(images, iter(range(predictions.shape[0])), pads)]
+
+        return results
 
 
     def call_cpu(self, images:List[np.ndarray]):
@@ -264,40 +279,52 @@ class YoloONNX():
 
         results = [self.postprocess(image, output, pad) for output, image, pad in zip(model_outputs, images, pads)]
 
-        return results[0]
+        return results
         
 
-import os
+# import os
+
+
+
+if __name__ == '__main__':
+
+
+    batch_images = 8
+
+    nano = 'yolo11n_5epoch_16batch640.onnx'
+    small = 'y11_100ep16b640.onnx'
+
+    model = YoloONNX(small, mode='gpu', batch = batch_images)
+    frame = cv2.imread('photo.jpg')
+
+    images = [frame] * 8
 
 
 
 
-batch_images = 8
-
-nano = './models/nano/yolo11n_5epoch_16batch640.onnx'
-small = './models/small/y11_100ep16b640.onnx'
-
-model = YoloONNX(small, mode='gpu', batch = batch_images)
-frame = cv2.imread('./demo/photo.jpg')
-
-print('load ok')
-def warmup(model, image, iterations=20):
-    for i in range(iterations):
-        _ = model(image)
-    print('warmup ok')
+    # print('load ok')
+    def warmup(model, images, iterations=20):
+        for i in range(iterations):
+            _ = model(images)
+        print('warmup ok')
 
 
-def bench(image):
-    start = time()
-    range_iter = 50
-    for _ in range(range_iter):
-        frame_box = model(image)
-    print(f'FPS: {1 / ((time() - start) / (range_iter * batch_images)):.3f}')
+    def bench(image):
+        start = time()
+        range_iter = 50
+        images = [image] * batch_images
+        for _ in range(range_iter):
+            frame_boxes = model(images)
+        print(f'FPS: {1 / ((time() - start) / (range_iter * batch_images)):.3f}')
 
 
-warmup(model, frame)
+    warmup(model, images)
 
-bench(frame)
+    results = model(images)
+
+    print(len(results))
+
+    # bench(frame)
 
 # range_iter = os.cpu_count() // 2
 
@@ -311,8 +338,8 @@ bench(frame)
 
 # print(f'Total time: {total:.3f}, fps {10 * range_iter/ total:.3f}')
 
-print('save')
-cv2.imwrite('after.jpg', model(frame))
+# print('save')
+# cv2.imwrite('after.jpg', model(frame))
 
 # def benchmark_gpu(model_path:str, img_path:str, batch = 1):
 #     model = YoloONNX('yolo11_5epoch_16batch.onnx', mode='gpu', batch = batch_images)
