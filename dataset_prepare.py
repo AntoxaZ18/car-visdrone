@@ -6,6 +6,48 @@ from typing import List
 import requests
 
 
+def show_random_image(path, fig_size = (24, 12)):
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as patches
+    import random
+    import os
+
+    def yolo_to_bbox(yolo_detection, image_width, image_height):
+        class_id, x_center, y_center, width, height = yolo_detection
+        x_min = (x_center - width / 2) * image_width
+        y_min = (y_center - height / 2) * image_height
+        x_max = (x_center + width / 2) * image_width
+        y_max = (y_center + height / 2) * image_height
+        return int(x_min), int(y_min), int(x_max), int(y_max), class_id
+    
+    labels = os.listdir(f'{path}/labels')
+
+    label = random.choice(labels)
+
+    print(label)
+
+    image = plt.imread(f'{path}/images/{label.split(".")[0] }.jpg') 
+    img_classes = open(f'{path}/labels/{label}', 'r').readlines()   
+    img_classes = [s.split() for s in img_classes]
+    fig, ax = plt.subplots(figsize=fig_size)
+
+    yolo_labels = []
+
+    for label in img_classes:
+        img_class, *coords =  label
+        yolo_labels.append([img_class, *[float(i) for i in coords]])
+    
+    #paint rectangles over image
+    for label in yolo_labels:
+        x_min, y_min, x_max, y_max, class_id = yolo_to_bbox(label, image.shape[1], image.shape[0])
+        rect = patches.Rectangle((x_min, y_min), x_max - x_min, y_max - y_min,
+                                linewidth=2, edgecolor='r', facecolor='none')
+        ax.add_patch(rect)
+
+    ax.imshow(image)
+    plt.show()
+
+
 def visdrone2yolo(dir, classes=None):
 
     def convert_box(size, box):

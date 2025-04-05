@@ -7,6 +7,8 @@
 /drone
 /drone_s
 /dataset
+/demo
+/drone
 /.venv
 *.zip
 *.onnx

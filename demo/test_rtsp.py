@@ -85,7 +85,7 @@ class OnnxRunner(QThread):
             self.batch = os.cpu_count() - 6
         else:
             self.batch = 8  #8images batch for gpu
-        self.model = YoloONNX(onnx_model, mode=device_mode, batch=self.batch, confidence=confidence)
+        self.model = YoloONNX(onnx_model, device=device_mode, batch=self.batch, confidence=confidence)
 
     def run(self):
 
