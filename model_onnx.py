@@ -5,16 +5,21 @@ from time import time
 from typing import List, Tuple
 from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
 
+
+from openvino import Core
+
+
 print(ort.__version__)
 
-def get_providers():
-    providers = [i for i in ort.get_available_providers() if any(val in i for val in ('CUDA', 'CPU'))]
-    modes = {
-        'CUDAExecutionProvider': 'gpu',
-        'CPUExecutionProvider': 'cpu'
-    }
-    providers = [modes.get(i) for i in providers]
-    return providers
+# def get_providers():
+#     providers = [i for i in ort.get_available_providers() if any(val in i for val in ('CUDA', 'CPU'))]
+
+#     modes = {
+#         'CUDAExecutionProvider': 'gpu',
+#         'CPUExecutionProvider': 'cpu'
+#     }
+#     providers = [modes.get(i) for i in providers]
+#     return providers
 
 
 class YoloONNX():
@@ -28,13 +33,16 @@ class YoloONNX():
         sess_options.execution_mode  = ort.ExecutionMode.ORT_SEQUENTIAL
         sess_options.inter_op_num_threads = 3
 
-        sess_providers = ['CPUExecutionProvider']
-        if device == 'gpu' or device == 0:
-            sess_providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-            self.mode = 'gpu'
-        else:
-            self.mode = 'cpu'
+
+        # sess_providers = ['CPUExecutionProvider']
+        # if device == 'gpu' or device == 0:
+        #     sess_providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+        #     self.mode = 'gpu'
+        # else:
+        #     self.mode = 'cpu'
         
+        sess_providers = ['OpenVINOExecutionProvider']
+
         self.session = ort.InferenceSession(path, providers=sess_providers, sess_options=sess_options)    #'CUDAExecutionProvider',
         model_inputs = self.session.get_inputs()
         input_shape = model_inputs[0].shape
@@ -210,11 +218,11 @@ class YoloONNX():
     def __call__(self, images: np.ndarray) -> np.ndarray:
         """return image of object if they are on image. Return only one object with highest score"""
 
-        if self.mode == 'gpu':
-            res = self.call_gpu(images)
-            return res
-        else:
-            return self.call_cpu(images)
+        # if self.mode == 'gpu':
+        #     res = self.call_gpu(images)
+        #     return res
+        # else:
+        return self.call_cpu(images)
     
     def call_gpu(self, images:List[np.ndarray]):
 
@@ -267,6 +275,12 @@ class YoloONNX():
 
 if __name__ == '__main__':
 
+    import sys
+
+    print(ort.get_available_providers())
+    # print(Core().available_devices)
+
+    sys.exit(0)
 
     batch_images = 8
 

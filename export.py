@@ -19,7 +19,8 @@ def export_to_onnx(torch_model: str, output_folder: str, export_model_name: str)
     onnx_path = model.export(format="onnx",
                 simplify=True, #упрощаем
                 dynamic=True, #возможность обрабатывать батчами
-                device=0   #gpu
+                device=0,   #gpu
+                opset=12
                 )
 
     #перемещаем в папку с моделями
@@ -28,6 +29,7 @@ def export_to_onnx(torch_model: str, output_folder: str, export_model_name: str)
 def bench_ort_onnx(model_path: str, image_path: str, device='cpu'):
     
     batch_size = os.cpu_count() if device == 'cpu' else 8
+    batch_size = os.cpu_count()
 
     frame = cv2.imread(image_path)   
     batch_images = [frame] * batch_size
@@ -54,7 +56,7 @@ def bench_ort_onnx(model_path: str, image_path: str, device='cpu'):
 
 
 if __name__ == '__main__':
-    # export_to_onnx(f'./drone_s/best.pt', './models/small', 'y11s_100ep16b640')
+    export_to_onnx(f'./drone_s/train/weights/best.pt', './models/small', 'y11s_100ep16b640_opset')
 
     nano = './models/nano/yolo11n_5epoch_16batch640.onnx'
     small = './models/small/y11_100ep16b640.onnx'
@@ -62,4 +64,4 @@ if __name__ == '__main__':
     img_path = './dataset/VisDrone2019-DET-val/images/0000001_03499_d_0000006.jpg'
 
 
-    bench_ort_onnx(small, img_path, device='cpu')
+    # bench_ort_onnx(small, img_path, device='cpu')

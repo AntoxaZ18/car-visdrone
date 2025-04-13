@@ -1,16 +1,17 @@
+import sys
+from time import time
 import numpy as np
 import onnxruntime as ort
 import cv2
-from time import time
 from typing import List, Tuple
 from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
+from trackers import BYTETracker
+from argparse import Namespace
 
-import sys
-
-print(ort.__version__)
 
 def get_providers():
     providers = [i for i in ort.get_available_providers() if any(val in i for val in ('CUDA', 'CPU'))]
+    print(ort.get_available_providers())
     modes = {
         'CUDAExecutionProvider': 'gpu',
         'CPUExecutionProvider': 'cpu'
@@ -19,8 +20,13 @@ def get_providers():
     return providers
 
 
+
+class Result():
+    conf = None
+    xywh = None
+    cls = None
 class YoloONNX():
-    def __init__(self, path: str, session_options=None, mode='cpu', batch=1, confidence=0.5) -> None:
+    def __init__(self, path: str, session_options=None, device='cpu', batch=1, confidence=0.5) -> None:
 
         sess_options = ort.SessionOptions()
 
@@ -31,7 +37,7 @@ class YoloONNX():
         sess_options.inter_op_num_threads = 3
 
         sess_providers = ['CPUExecutionProvider']
-        if mode == 'gpu':
+        if device == 'gpu':
             sess_providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
             self.mode = 'gpu'
         else:
@@ -52,22 +58,32 @@ class YoloONNX():
         self.color_palette = np.random.uniform(0, 255, size=(len(self.classes), 3))
         self.executor = ThreadPoolExecutor(max_workers=self.batch)
 
+        self.tracker = BYTETracker(Namespace(track_buffer=30, track_high_thresh=0.6, track_low_thresh=0.2, fuse_score=0.6, match_thresh=0.8, new_track_thresh=0.5), frame_rate=10)
 
-    def _image_preprocess(self, bgr_frame) -> np.ndarray:
+    def _image_batch_preprocess(self, image_batch: List):
+        imgs = np.stack([self.letterbox(img)[0] for img in image_batch])
+
+        imgs = imgs[..., ::-1].transpose((0, 3, 1, 2))  # BGR to RGB, BHWC to BCHW, (n, 3, h, w)
+        imgs = np.ascontiguousarray(imgs)  # contiguous
+        imgs = imgs.astype(float) / 255.0
+
+        return imgs
+
+    def _image_preprocess(self, rgb_frame) -> np.ndarray:
         """image preprocessing
-        bgr_frame - image in bgr format
+        rgb_frame - image in rgb format
         including resizing to yolo input shape
         add batch dimension and normalized to 0...1 range
         convert from image to tensor view
         # """
-        self.img_height, self.img_width = bgr_frame.shape[:2]
-        rgb_img = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
+        self.img_height, self.img_width = rgb_frame.shape[:2]
 
+        # image_rgb = cv2.cvtColor(rgb_frame, cv2.COLOR_BGR2RGB)
 
-        img, pad = self.letterbox(rgb_img, (self.input_width, self.input_height))
+        image_data, pad = self.letterbox(rgb_frame, (self.input_width, self.input_height))
 
         # Normalize the image data by dividing it by 255.0
-        image_data = np.array(img) / 255.0
+        image_data = np.array(image_data) / 255.0
 
         # Transpose the image to have the channel dimension as the first dimension
         image_data = np.transpose(image_data, (2, 0, 1))  # Channel first
@@ -107,7 +123,7 @@ class YoloONNX():
 
         return img, (top, left)
 
-    def draw_detections(self, img: np.ndarray, box: List[float], score: float, class_id: int) -> None:
+    def draw_detections(self, img: np.ndarray, box: List[float], score: float, class_id: int, track_id: int=0) -> None:
         """
         Draw bounding boxes and labels on the input image based on the detected objects.
 
@@ -118,6 +134,7 @@ class YoloONNX():
             class_id (int): Class ID for the detected object.
         """
         # Extract the coordinates of the bounding box
+        box = [int(i) for i in box]
         x1, y1, w, h = box
 
         # Retrieve the color for the class ID
@@ -127,7 +144,7 @@ class YoloONNX():
         cv2.rectangle(img, (int(x1), int(y1)), (int(x1 + w), int(y1 + h)), color, 2)
 
         # Create the label text with class name and score
-        label = f"{self.classes[class_id]}: {score:.2f}"
+        label = f"{self.classes[class_id]}: {score:.2f} id:{track_id}"
 
         # Calculate the dimensions of the label text
         (label_width, label_height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
@@ -145,7 +162,7 @@ class YoloONNX():
         cv2.putText(img, label, (label_x, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
 
 
-    def postprocess(self, input_image: np.ndarray, output: List[np.ndarray], pad: Tuple[int, int]) -> np.ndarray:
+    def postprocess(self, output: List[np.ndarray], pad: Tuple[int, int]) -> np.ndarray:
         """
         Perform post-processing on the model's output to extract and visualize detections.
 
@@ -153,12 +170,8 @@ class YoloONNX():
         It applies non-maximum suppression to filter overlapping detections and draws the results on the input image.
 
         Args:
-            input_image (np.ndarray): The input image.
             output (List[np.ndarray]): The output arrays from the model.
             pad (Tuple[int, int]): Padding values (top, left) used during letterboxing.
-
-        Returns:
-            (np.ndarray): The input image with detections drawn on it.
         """
         # Transpose and squeeze the output to match the expected shape
 
@@ -195,40 +208,21 @@ class YoloONNX():
 
         indices = cv2.dnn.NMSBoxes(boxes, scores, self.confidence_thres, self.iou)
 
-        # Iterate over the selected indices after non-maximum suppression
+        predictions = []
+
         for i in indices:
             # Get the box, score, and class ID corresponding to the index
             box = boxes[i]
             score = scores[i]
             class_id = class_ids[i]
+            predictions.append([*box, score, class_id])
 
-            # Draw the detection on the input image
-            self.draw_detections(input_image, box, score, class_id)
+        return predictions
 
-        # Return the modified input image
-        return input_image
 
 
     def __call__(self, images: np.ndarray) -> np.ndarray:
         """return image of object if they are on image. Return only one object with highest score"""
-
-        # tensor_image, pad = self._image_preprocess(image)
-        # output_name = self.session.get_outputs()[0].name
-        # input_name = self.session.get_inputs()[0].name
-        # batch = np.concatenate([tensor_image for _ in range(self.batch)], axis=0)
-        
-
-        # outputs = self.session.run([output_name], {input_name: batch})
-       
-        # results = [self.postprocess(image, output, pad) for output in outputs]
-
-        # # wait(futures, return_when=ALL_COMPLETED)
-
-        # return results[0]
-        
-        # images = [image for i in range(self.batch)]
-        
-
         if self.mode == 'gpu':
             res = self.call_gpu(images)
             return res
@@ -256,14 +250,20 @@ class YoloONNX():
         
         predictions = outputs[0]
 
-        results = [self.postprocess(image, np.expand_dims(predictions[idx], axis=0), pad) for image, idx, pad in zip(images, iter(range(predictions.shape[0])), pads)]
+        results = [self.postprocess(np.expand_dims(predictions[idx], axis=0), pad) for image, idx, pad in zip(images, iter(range(predictions.shape[0])), pads)]
 
         return results
 
 
     def call_cpu(self, images:List[np.ndarray]):
 
+
         futures = [self.executor.submit(self._image_preprocess, image) for image in images]
+
+        # start = time()
+        # self._image_batch_preprocess(images)
+        # print(time() - start)
+
         wait(futures, return_when=ALL_COMPLETED)
         tensor_images = [f.result() for f in futures]
     
@@ -277,152 +277,124 @@ class YoloONNX():
         model_outputs = [f.result() for f in futures]
         pads = [pad for (img, pad) in tensor_images]
 
-        results = [self.postprocess(image, output, pad) for output, image, pad in zip(model_outputs, images, pads)]
 
-        return results
+        predictions = [self.postprocess(output, pad) for output, pad in zip(model_outputs, pads)]
+
+        return self.draw(images, predictions)
+
+
+
+    def draw(self, images:List[np.ndarray], predictions):
         
+        out_images = []
 
-# import os
+        for img, img_preds in zip(images, predictions):
+
+            dets = np.array(img_preds)
+
+            x = Result()
+            x.conf = dets[:, 4]
+            x.xywh = dets[:, 0:4]
+            x.cls = dets[:, 5]
+
+            online_targets = self.tracker.update(x, (self.img_height, self.img_width))
+            if len(online_targets):
+                x1 = online_targets[:, 0]
+                y1 = online_targets[:, 1]
+                x2 = online_targets[:, 2]
+                y2 = online_targets[:, 3]
+
+                targets = np.column_stack([(x1+x2) / 2, (y1 + y2) / 2, x2-x1, y2-y1, online_targets[:, 5], online_targets[:, 6], online_targets[:, 4]]).tolist()
+
+                for box in targets:
+                    self.draw_detections(img, [box[0], box[1], box[2], box[3]], box[4], int(box[5]), int(box[6]))
+
+            out_images.append(img)
+
+        return images
+    
+
+        #     for img, img_preds in zip(images, predictions):
+        #     for box in img_preds:
+        #         byte_pred = [*box[0], box[1], box[2]]
+        #         # online_targets = tracker.update(byte_pred, [self.img_height, self.img_width], [640, 640])
+        #         self.draw_detections(img, *box)
+        #     out_images.append(img)
+
+        # return images
+
 
 
 
 if __name__ == '__main__':
 
 
-    batch_images = 8
+
+    batch_images = 1
 
     nano = 'yolo11n_5epoch_16batch640.onnx'
     small = 'y11_100ep16b640.onnx'
 
-    model = YoloONNX(small, mode='gpu', batch = batch_images)
-    frame = cv2.imread('photo.jpg')
+    model = YoloONNX(small, device='cpu', batch = batch_images)
 
-    images = [frame] * 8
+    # cap = cv2.VideoCapture('VID_20250412_121719.mp4')
 
+    # # for _ in range(1000):
+    # #     ret, frame = cap.read()
+    # #     image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB, frame)
+    # #     images = [image_rgb] 
+    # #     process_imgs = model(images)
+
+    # img = cv2.imread('test.jpg')
+    # image_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    # model(images)
+
+    # sys.exit(0)
+
+
+
+
+
+    frame = cv2.imread('test.jpg')
+    image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+    images = [image_rgb] 
+    process_imgs = model(images)
+
+    print('show')
+    cv2.startWindowThread()
+
+    cv2.namedWindow('frame', cv2.WINDOW_AUTOSIZE)
+    cv2.imshow('frame', process_imgs[0])
+    while True:
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    cv2.destroyAllWindows()
+
+    # cv2.imwrite('out.jpg', process_imgs[0])
+    # cv2.imshow('0', process_imgs[0])
+
+    # sys.exit(0)
 
 
 
     # print('load ok')
-    def warmup(model, images, iterations=20):
-        for i in range(iterations):
-            _ = model(images)
-        print('warmup ok')
+    # def warmup(model, images, iterations=20):
+    #     for i in range(iterations):
+    #         _ = model(images)
+    #     print('warmup ok')
 
 
-    def bench(image):
-        start = time()
-        range_iter = 50
-        images = [image] * batch_images
-        for _ in range(range_iter):
-            frame_boxes = model(images)
-        print(f'FPS: {1 / ((time() - start) / (range_iter * batch_images)):.3f}')
+    # def bench(image):
+    #     start = time()
+    #     range_iter = 50
+    #     images = [image] * batch_images
+    #     for _ in range(range_iter):
+    #         frame_boxes = model(images)
+    #     print(f'FPS: {1 / ((time() - start) / (range_iter * batch_images)):.3f}')
 
 
-    warmup(model, images)
-
-    results = model(images)
-
-    print(len(results))
-
-    # bench(frame)
-
-# range_iter = os.cpu_count() // 2
-
-# with ThreadPoolExecutor(max_workers=range_iter) as executor:
-#     bench_start = time()
-#     futures = [executor.submit(bench, frame) for _ in range(range_iter)]
-
-#     wait(futures, return_when=ALL_COMPLETED)
-
-# total = time() - bench_start
-
-# print(f'Total time: {total:.3f}, fps {10 * range_iter/ total:.3f}')
-
-# print('save')
-# cv2.imwrite('after.jpg', model(frame))
-
-# def benchmark_gpu(model_path:str, img_path:str, batch = 1):
-#     model = YoloONNX('yolo11_5epoch_16batch.onnx', mode='gpu', batch = batch_images)
-#     frame = cv2.imread('photo.jpg')
-
-# print('load ok')
-# def warmup(model, image, iterations=10):
-#     for i in range(iterations):
-#         _ = model(image)
+    # warmup(model, images)
 
 
-# def bench(image):
-#     start = time()
-#     range_iter = 50
-#     for _ in range(range_iter):
-#         frame_box = model(image)
-#     print(f'FPS: {1 / ((time() - start) / (range_iter * batch_images)):.3f}')
-
-
-# warmup(model, frame)
-
-# bench(frame)
-
-
-
-# def postprocess(self, input_image: np.ndarray, output: List[np.ndarray], pad: Tuple[int, int]) -> np.ndarray:
-#         """
-#         Perform post-processing on the model's output to extract and visualize detections.
-
-#         This method processes the raw model output to extract bounding boxes, scores, and class IDs.
-#         It applies non-maximum suppression to filter overlapping detections and draws the results on the input image.
-
-#         Args:
-#             input_image (np.ndarray): The input image.
-#             output (List[np.ndarray]): The output arrays from the model.
-#             pad (Tuple[int, int]): Padding values (top, left) used during letterboxing.
-
-#         Returns:
-#             (np.ndarray): The input image with detections drawn on it.
-#         """
-#         # Transpose and squeeze the output to match the expected shape
-#         outputs = np.transpose(np.squeeze(output[0]))
-
-#         # Calculate the scaling factors for the bounding box coordinates
-#         input_height = self.img_height
-#         input_width = self.img_width
-
-#         gain = np.float32(min(input_height / self.img_height, input_width / self.img_width))
-#         outputs[:, 0] -= pad[1]
-#         outputs[:, 1] -= pad[0]
-
-#         #find max score for prediction
-#         max_scores = np.amax(outputs[:, 4:], axis=1)
-#         #filter prediction with result more than confidence thresh
-#         results = outputs[max_scores > self.confidence_thres]
-#         #find class ids
-#         class_ids = np.argmax(results[:, 4:], axis=1).tolist()
-#         scores = np.amax(results[:, 4:], axis=1).tolist()
-        
-#         #convert coordinates of boxes
-#         x = results[:, 0]
-#         y = results[:, 1]
-#         w = results[:, 2]
-#         h = results[:, 3]
-
-#         left = ((x - w / 2) / gain).astype(int)
-#         top = ((y - h / 2) / gain).astype(int)
-#         width = (w / gain).astype(int)
-#         height = (h / gain).astype(int)
-
-#         boxes = np.column_stack((left, top, width, height)).tolist()
-
-#         indices = cv2.dnn.NMSBoxes(boxes, scores, self.confidence_thres, self.iou_thres)
-
-#         # Iterate over the selected indices after non-maximum suppression
-#         for i in indices:
-#             # Get the box, score, and class ID corresponding to the index
-#             box = boxes[i]
-#             score = scores[i]
-#             class_id = class_ids[i]
-
-#             # Draw the detection on the input image
-#             self.draw_detections(input_image, box, score, class_id)
-
-#         # Return the modified input image
-#         return input_image
+    # print(len(results))

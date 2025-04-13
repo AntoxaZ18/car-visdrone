@@ -2,10 +2,10 @@ import sys
 import os
 import cv2
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget, QPushButton, QCheckBox, QLineEdit, QRadioButton,
+    QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget, QPushButton, QLineEdit, 
     QComboBox, QHBoxLayout, QMessageBox, QFileDialog, QSlider
 )
-from PyQt5.QtGui import QImage, QPixmap, QPainter, QFont, QColor
+from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtCore import QThread, pyqtSignal, QTimer, Qt
 from time import time, sleep
 from threading import Lock
@@ -14,39 +14,46 @@ from queue import Queue, Empty
 from collections import deque
 from random import randint
 from model_onnx import YoloONNX, get_providers
+import numpy as np
 
 
 class VideoThread(QThread):
     # change_pixmap_signal = pyqtSignal(QImage)
     position_signal = pyqtSignal(int)
 
-    def __init__(self, stream, *args, **kwargs):
+    def __init__(self, stream, source, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._run_flag = True
+        self.source = source
         self.deque = stream
         self.stream_lock = Lock()
         self.cap = None
         self.total_frames = 0
         self.fps = 0
+        self.frame = None
 
     def run(self):
-        self.cap = cv2.VideoCapture('demo.mp4')
+        self.cap = cv2.VideoCapture(self.source)
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
         self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
         delay = 1.0 / self.fps
 
+        #preallocate arrays
+        self.frame = np.zeros(shape=(cv2.CAP_PROP_FRAME_HEIGHT, cv2.CAP_PROP_FRAME_WIDTH, 3), dtype=np.uint8)
+        self.rgb_frame = np.zeros(shape=(cv2.CAP_PROP_FRAME_HEIGHT, cv2.CAP_PROP_FRAME_WIDTH, 3), dtype=np.uint8)
+
         cnt = 0
         while self._run_flag:
             with self.stream_lock:
-                ret, frame = self.cap.read()
+                ret, frame = self.cap.read(self.frame)
                 if ret:
-                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    self.deque.append(rgb)
+                    image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB, self.rgb_frame)
+                    self.deque.append(image_rgb)
 
             if cnt % (self.fps // 2) == 0:
                 current_frame = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES))
                 self.position_signal.emit(int(current_frame / self.total_frames * 1000))
-            sleep(0.2 / self.fps)
+            sleep(delay)
 
         self.cap.release()
 
@@ -59,17 +66,15 @@ class VideoThread(QThread):
 
 
     def set_position(self, new_pos):
-        #new pos 0-100
         if self.cap is not None:
             with self.stream_lock:
                 self.cap.set(cv2.CAP_PROP_POS_FRAMES, (new_pos / 1000 * self.total_frames))
 
     def duration(self):
         #in seconds
-        return (self.total_frames // self.fps) 
+        return (self.total_frames // self.fps)
 
 class OnnxRunner(QThread):
-    # change_pixmap_signal = pyqtSignal(QImage)
 
     def __init__(self, stream, output_stream, onnx_model=None, device_mode='cpu', confidence=0.5, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -82,10 +87,16 @@ class OnnxRunner(QThread):
         self.output = output_stream
         self.frames_to_process = []
         if device_mode == 'cpu':
-            self.batch = os.cpu_count() - 6
+            self.batch = max(4, os.cpu_count() - 4) #остальная система тоже хочет ресурсов
         else:
             self.batch = 8  #8images batch for gpu
         self.model = YoloONNX(onnx_model, device=device_mode, batch=self.batch, confidence=confidence)
+
+        self.fps_q = deque(maxlen=10)
+
+    def fps(self):
+        fps = '0' if not len(self.fps_q) else f'{1 / (sum(self.fps_q) / len(self.fps_q)):.2f}'
+        return fps
 
     def run(self):
 
@@ -95,11 +106,9 @@ class OnnxRunner(QThread):
                 self.frames_to_process = self.input_stream.get_batch()
                 
                 start = time()
-                # frames = self.frames_to_process
                 frames = self.model(self.frames_to_process)
-                # print(f'{(time() - start):.3f}')
+                self.fps_q.append((time() - start) / self.batch)
 
-                #send to renderer
                 for frame in frames:
                     self.output.put_nowait(frame)
                 self.frames_to_process.clear()
@@ -125,20 +134,18 @@ class Renderer(QThread):
         self.timer.timeout.connect(self.update_frame)
         self.timer.setInterval(self.update_interval)
         self.timer.start()  
-        self.wait_frame = 0
         self.fifo_fill_level = 20
-        self.i_err = 0
         self.cnt = 0
-        self.last_err = 0
-        self.err_dec = deque(maxlen=20)
+        self.frame_fps = deque(maxlen=10)
 
-    def update_fps(self, correctness):
-        self.fps = correctness
-        self.timer.setInterval(1 / self.fps)
-        print(f'new fps {self.fps:.3f}')
-        
     def reset_buf(self):
         self.source.queue.clear()
+
+    def fps(self):
+        if len(self.frame_fps):
+            return sum(self.frame_fps) / len(self.frame_fps)
+        
+        return 0
 
     def update_frame(self):
         try:
@@ -154,17 +161,11 @@ class Renderer(QThread):
             return
 
         mean_fill = self.source.qsize()
-        error = mean_fill - self.fifo_fill_level
-
         self.cnt += 1
         
-        self.err_dec.append(error)
-        if self.cnt % 5 == 0:
-            # error = sum((i for i in list(self.err_dec))) / 10
+        if self.cnt % 12 == 0:
             error = mean_fill - self.fifo_fill_level
-            err = (error / self.fifo_fill_level)
-            if err > 1:
-                err = 0.99
+            err = (error * 0.01)
             self.update_interval *= (1 - err)
             self.update_interval = int(self.update_interval)
 
@@ -173,6 +174,8 @@ class Renderer(QThread):
 
             if self.update_interval > 120:
                 self.update_interval = 120
+
+            self.frame_fps.append(1000 / self.update_interval)
 
             self.timer.setInterval(self.update_interval)
 
@@ -198,10 +201,12 @@ class VideoWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("Video Stream")
+        self.setWindowTitle("Onnx real view runner")
         self.setGeometry(100, 100, 1920 // 2, 1080 // 2)
         self.width = 800
         self.height = 600
+
+        self.timer = QTimer()
 
         self.central_widget = QWidget(self)
         self.setCentralWidget(self.central_widget)
@@ -212,7 +217,6 @@ class VideoWindow(QMainWindow):
         self.file_label = QLabel(self)
         self.file_label.setText('Видеофайл')
         self.video_source = cQLineEdit(self.central_widget)
-        self.video_source.setText('Выберите файл')
         self.video_source.clicked.connect(self.choose_sorce)
 
         self.rtsp_label = QLabel(self)
@@ -255,7 +259,10 @@ class VideoWindow(QMainWindow):
         self.stop_button.clicked.connect(self.stop_video)
 
         self.perf_label = QLabel(self)
-        self.perf_label.setText('14 FPS')
+        self.perf_label.setText('0 FPS')
+
+        self.video_fps = QLabel(self)
+        self.video_fps.setText('0 FPS')
 
         control_layout = QVBoxLayout()
         control_layout.addWidget(self.file_label)
@@ -273,6 +280,7 @@ class VideoWindow(QMainWindow):
         control_layout.addWidget(self.start_button)
         control_layout.addWidget(self.stop_button)
         control_layout.addWidget(self.perf_label)
+        control_layout.addWidget(self.video_fps)
 
         self.time_slider = QSlider(Qt.Horizontal, self.central_widget)
         self.time_slider.setMinimum(0)
@@ -316,18 +324,6 @@ class VideoWindow(QMainWindow):
         self.rtsp_thread = None
         self.onnx_thread = None
 
-        # self.onnx_thread = OnnxRunner('yolo11n_5epoch_16batch640.onnx', frame_queue, self.render_source)
-        # self.onnx_thread = OnnxRunner('y11_100ep16b640.onnx', frame_queue, self.render_source)
-
-        
-
-        # self.frame_update_time = time()
-        # self.fps_q = deque(maxlen=50)
-
-        # self.timer = QTimer()
-        # self.timer.timeout.connect(self.print_fps)
-        # self.timer.start(300)  #время обновления FPS
-        # self.fps = 0
 
     def update_slider_position(self, pos):
         self.time_slider.blockSignals(True)
@@ -354,33 +350,23 @@ class VideoWindow(QMainWindow):
         if self.rtsp_thread is not None:
             self.rtsp_thread.restart()
             return
+        
+        if not self.video_source.text():
+            QMessageBox.warning(self, "Warning", "Нужно выбрать файл")
+            return
 
-        # if self.source_mode == "file":
-        #     if not self.selected_file:
-        #         QMessageBox.warning(self, "Warning", "Please select a video file first.")
-        #         return
-        #     source = self.selected_file
-        # elif self.source_mode == "url":
-        #     if not self.url_edit.text():
-        #         QMessageBox.warning(self, "Warning", "Please enter an RTSP URL first.")
-        #         return
-        #     source = self.url_edit.text()
-        # else:
-        #     QMessageBox.warning(self, "Warning", "Invalid source mode.")
-        #     return
+        if not self.model_file.currentText():
+            QMessageBox.warning(self, "Warning", "Нужно выбрать файл модели")
+            return
 
-        print('new thread')
+
         onnx_cfg = {}
-        onnx_cfg['onnx_model'] = f'{self.model_folder.text()}/{self.model_file.currentText()}' 
+        onnx_cfg['onnx_model'] = f'{self.model_folder.text()}/{self.model_file.currentText()}'
         onnx_cfg['device_mode'] = self.perf_mode.currentText()
         onnx_cfg['confidence'] = self.conf.value() / 100
 
 
-        print(onnx_cfg)
-
-        # return
-
-        self.rtsp_thread = VideoThread(self.frame_queue)
+        self.rtsp_thread = VideoThread(self.frame_queue, self.video_source.text())
         self.rtsp_thread.position_signal.connect(self.update_slider_position)
         self.rtsp_thread.start()
 
@@ -392,10 +378,9 @@ class VideoWindow(QMainWindow):
         
         self.render.start()
 
-        # self.start_button.setEnabled(False)
-        # self.stop_button.setEnabled(True)
+        self.timer.timeout.connect(self.print_fps)
+        self.timer.start(1000)  #время обновления FPS
 
-        # self.init_time_controls()
 
     def stop_video(self):
         if self.rtsp_thread is not None and self.rtsp_thread.isRunning():
@@ -409,11 +394,8 @@ class VideoWindow(QMainWindow):
         options = QFileDialog.Options()
         folder_path = QFileDialog.getExistingDirectory(self, "Select Folder", options=options)
         if folder_path:
-            # self.selected_folder = folder_path
             self.model_folder.setText(folder_path)
             self.model_file.addItems([i for i in os.listdir(folder_path) if i.endswith('.onnx')])
-
-            print(f"Selected Folder: {folder_path}")
 
     def choose_sorce(self):
         dlg = QFileDialog()
@@ -422,39 +404,21 @@ class VideoWindow(QMainWindow):
         if dlg.exec_():
             if len(dlg.selectedFiles()):
                 filepath = dlg.selectedFiles()[0]
-                print(filepath)
-                # self.load_firm_path.setText(filepath)
+                self.video_source.setText(filepath)
 
-    # def print_fps(self):
-    #     if len(self.fps_q):
-    #         self.fps = sum(self.fps_q) / len(self.fps_q)
+    def print_fps(self):
+        if self.onnx_thread and self.render:
+            self.perf_label.setText(f'NN: {self.onnx_thread.fps()} FPS')
+            self.video_fps.setText(f'R: {self.render.fps():.2f} FPS')
 
-    def draw_fps(self, img):
-        return
-        painter = QPainter(img)
-
-        font = QFont("Arial", 24, QFont.Bold)
-        painter.setFont(font)
-
-        painter.setPen(QColor(0, 0, 0))  
-        # text = f'{self.fps:.2f} FPS' if self.fps else 'N/A'
-
-        x = 10
-        y = 30
-
-        painter.drawText(x, y, text)
-        painter.end()
-
+            
     def update_image(self, cv_img):
-        self.draw_fps(cv_img)
         self.qt_img = QPixmap.fromImage(cv_img)
         self.image_label.setPixmap(self.qt_img)
-        # self.fps_q.append(1 / (time() - self.frame_update_time))
-        self.frame_update_time = time()
-        self.original_size = self.qt_img.size()
+        original_size = self.qt_img.size()
 
         self.scale_image()
-        self.setMinimumSize(self.original_size.width(), self.original_size.height())
+        self.setMinimumSize(original_size.width(), original_size.height())
 
     def scale_image(self):
         if self.qt_img is not None:

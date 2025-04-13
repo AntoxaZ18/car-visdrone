@@ -53,4 +53,4 @@ if __name__ == '__main__':
     yaml = 'VisDrone.yaml'
     weight_path = './drone'
 
-    create_report(image_size, yaml, weight_path, 'small', plot=True)
+    # create_report(image_size, yaml, weight_path, 'small', plot=True)
