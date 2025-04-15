@@ -5,9 +5,12 @@ Write-Output "Python at $py_folder"
 
 $sip_pyd = $py_folder + "\Lib\site-packages\PyQt5\sip.cp39-win_amd64.pyd;PyQt5/sip.pyd"
 $qt_folder = $py_folder + "\Lib\site-packages\PyQt5\Qt5;PyQt5/Qt5"
+$cuda_dll = $py_folder + "/Lib/site-packages/onnxruntime/capi/onnxruntime_providers_cuda.dll"
 
-&py $py_ver -m PyInstaller -w app.py `
+
+&py $py_ver -m PyInstaller app.py `
     --add-data $sip_pyd `
     --add-data $qt_folder `
+    --add-binary "$cuda_dll;./onnxruntime/capi/" `
     --add-binary="icon.ico;." `
-    --clean --name=onnx_rt_viewer -F --ico icon.ico   
+    --clean --name=onnx_rt_viewer -w -F --ico icon.ico   

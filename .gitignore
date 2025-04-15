@@ -4,7 +4,11 @@
 /VisDrone2019-DET-test-dev
 /VisDrone2019-DET-test-challenge
 /runs
-/demo
+/demo/__pycache__
+/demo/.venv
+/demo/dist
+/demo/*.exe
+/demo/*.spec
 /demo/build
 /drone
 /drone_s

@@ -1,13 +1,11 @@
-import sys
 from time import time
 import numpy as np
 import onnxruntime as ort
 import cv2
 from typing import List, Tuple
 from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
-from trackers import BYTETracker
-from argparse import Namespace
 
+from tracker import TrackerInput, ByteTracker
 
 def get_providers():
     providers = [i for i in ort.get_available_providers() if any(val in i for val in ('CUDA', 'CPU'))]
@@ -20,11 +18,6 @@ def get_providers():
     return providers
 
 
-
-class Result():
-    conf = None
-    xywh = None
-    cls = None
 class YoloONNX():
     def __init__(self, path: str, session_options=None, device='cpu', batch=1, confidence=0.5) -> None:
 
@@ -58,16 +51,19 @@ class YoloONNX():
         self.color_palette = np.random.uniform(0, 255, size=(len(self.classes), 3))
         self.executor = ThreadPoolExecutor(max_workers=self.batch)
 
-        self.tracker = BYTETracker(Namespace(track_buffer=30, track_high_thresh=0.6, track_low_thresh=0.2, fuse_score=0.6, match_thresh=0.8, new_track_thresh=0.5), frame_rate=10)
+        self.tracker = ByteTracker()
 
     def _image_batch_preprocess(self, image_batch: List):
-        imgs = np.stack([self.letterbox(img)[0] for img in image_batch])
+        images = [self.letterbox(img) for img in image_batch]
+        imgs = [img[0] for img in images]
+        pads = [img[1] for img in images]
+        
+        imgs = np.stack(imgs)
+        imgs = np.ascontiguousarray(imgs)  # contiguous
 
         imgs = imgs[..., ::-1].transpose((0, 3, 1, 2))  # BGR to RGB, BHWC to BCHW, (n, 3, h, w)
-        imgs = np.ascontiguousarray(imgs)  # contiguous
-        imgs = imgs.astype(float) / 255.0
-
-        return imgs
+        imgs = imgs.astype(np.float32) / 255.0
+        return imgs, pads
 
     def _image_preprocess(self, rgb_frame) -> np.ndarray:
         """image preprocessing
@@ -221,21 +217,21 @@ class YoloONNX():
 
 
 
-    def __call__(self, images: np.ndarray) -> np.ndarray:
+    def __call__(self, image_batch: np.ndarray) -> np.ndarray:
         """return image of object if they are on image. Return only one object with highest score"""
         if self.mode == 'gpu':
-            res = self.call_gpu(images)
+            res = self.call_gpu(image_batch)
             return res
         else:
-            return self.call_cpu(images)
+            return self.call_cpu(image_batch)
     
-    def call_gpu(self, images:List[np.ndarray]):
+    def call_gpu(self, image_batch:List[np.ndarray]):
+        '''call gpu variant'''
 
-        # futures = [self.executor.submit(self._image_preprocess, image) for image in images]
-        # wait(futures, return_when=ALL_COMPLETED)
-        # tensor_images = [f.result() for f in futures]
+        futures = [self.executor.submit(self._image_preprocess, image) for image in image_batch]
 
-        tensor_images = [self._image_preprocess(image) for image in images]
+        wait(futures, return_when=ALL_COMPLETED)
+        tensor_images = [f.result() for f in futures]
 
         output_name = self.session.get_outputs()[0].name
         input_name = self.session.get_inputs()[0].name
@@ -243,61 +239,54 @@ class YoloONNX():
         imgs = [img for (img, _) in tensor_images]
         pads = [pad for (_, pad) in tensor_images]
 
-
         batch = np.concatenate(imgs, axis=0)
         
         outputs = self.session.run([output_name], {input_name: batch})
         
         predictions = outputs[0]
 
-        results = [self.postprocess(np.expand_dims(predictions[idx], axis=0), pad) for image, idx, pad in zip(images, iter(range(predictions.shape[0])), pads)]
+        results = [self.postprocess(np.expand_dims(predictions[idx], axis=0), pad) for image, idx, pad in zip(image_batch, iter(range(predictions.shape[0])), pads)]
 
-        return results
-
-
-    def call_cpu(self, images:List[np.ndarray]):
+        return self.draw(image_batch, results)
 
 
-        futures = [self.executor.submit(self._image_preprocess, image) for image in images]
-
-        # start = time()
-        # self._image_batch_preprocess(images)
-        # print(time() - start)
-
-        wait(futures, return_when=ALL_COMPLETED)
-        tensor_images = [f.result() for f in futures]
-    
+    def process(self, image):
+        tensor, pad = self._image_preprocess(image)
         output_name = self.session.get_outputs()[0].name
         input_name = self.session.get_inputs()[0].name
 
-        futures = [self.executor.submit(self.session.run, [output_name], {input_name: image}) for image, _ in tensor_images]
+        outputs = self.session.run([output_name], {input_name: tensor})
+        return self.postprocess(outputs, pad)
 
+
+
+    def call_cpu(self, image_batch:List[np.ndarray]):
+        '''
+        call cpu variant on image batch
+        '''
+
+        futures = [self.executor.submit(self.process, image) for image in images]
         wait(futures, return_when=ALL_COMPLETED)
+        predictions = [f.result() for f in futures]
 
-        model_outputs = [f.result() for f in futures]
-        pads = [pad for (img, pad) in tensor_images]
-
-
-        predictions = [self.postprocess(output, pad) for output, pad in zip(model_outputs, pads)]
-
-        return self.draw(images, predictions)
+        return self.draw(image_batch, predictions)
 
 
 
-    def draw(self, images:List[np.ndarray], predictions):
+    def draw(self, image_batch:List[np.ndarray], predictions:List):
+        '''draw boxes on images'''
         
-        out_images = []
+        for img, img_preds in zip(image_batch, predictions):
 
-        for img, img_preds in zip(images, predictions):
+            if not img_preds:
+                continue
 
             dets = np.array(img_preds)
 
-            x = Result()
-            x.conf = dets[:, 4]
-            x.xywh = dets[:, 0:4]
-            x.cls = dets[:, 5]
+            x = TrackerInput(conf=dets[:, 4], xywh=dets[:, 0:4], cls_=dets[:, 5])
 
             online_targets = self.tracker.update(x, (self.img_height, self.img_width))
+
             if len(online_targets):
                 x1 = online_targets[:, 0]
                 y1 = online_targets[:, 1]
@@ -309,56 +298,25 @@ class YoloONNX():
                 for box in targets:
                     self.draw_detections(img, [box[0], box[1], box[2], box[3]], box[4], int(box[5]), int(box[6]))
 
-            out_images.append(img)
-
-        return images
+        return image_batch
     
-
-        #     for img, img_preds in zip(images, predictions):
-        #     for box in img_preds:
-        #         byte_pred = [*box[0], box[1], box[2]]
-        #         # online_targets = tracker.update(byte_pred, [self.img_height, self.img_width], [640, 640])
-        #         self.draw_detections(img, *box)
-        #     out_images.append(img)
-
-        # return images
-
-
 
 
 if __name__ == '__main__':
 
 
 
-    batch_images = 1
+    batch_images = 12
 
     nano = 'yolo11n_5epoch_16batch640.onnx'
     small = 'y11_100ep16b640.onnx'
 
     model = YoloONNX(small, device='cpu', batch = batch_images)
 
-    # cap = cv2.VideoCapture('VID_20250412_121719.mp4')
-
-    # # for _ in range(1000):
-    # #     ret, frame = cap.read()
-    # #     image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB, frame)
-    # #     images = [image_rgb] 
-    # #     process_imgs = model(images)
-
-    # img = cv2.imread('test.jpg')
-    # image_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    # model(images)
-
-    # sys.exit(0)
-
-
-
-
-
     frame = cv2.imread('test.jpg')
     image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-    images = [image_rgb] 
+    images = [image_rgb] * batch_images
     process_imgs = model(images)
 
     print('show')
@@ -375,26 +333,3 @@ if __name__ == '__main__':
     # cv2.imshow('0', process_imgs[0])
 
     # sys.exit(0)
-
-
-
-    # print('load ok')
-    # def warmup(model, images, iterations=20):
-    #     for i in range(iterations):
-    #         _ = model(images)
-    #     print('warmup ok')
-
-
-    # def bench(image):
-    #     start = time()
-    #     range_iter = 50
-    #     images = [image] * batch_images
-    #     for _ in range(range_iter):
-    #         frame_boxes = model(images)
-    #     print(f'FPS: {1 / ((time() - start) / (range_iter * batch_images)):.3f}')
-
-
-    # warmup(model, images)
-
-
-    # print(len(results))
