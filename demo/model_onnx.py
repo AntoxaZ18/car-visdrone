@@ -265,7 +265,7 @@ class YoloONNX():
         call cpu variant on image batch
         '''
 
-        futures = [self.executor.submit(self.process, image) for image in images]
+        futures = [self.executor.submit(self.process, image) for image in image_batch]
         wait(futures, return_when=ALL_COMPLETED)
         predictions = [f.result() for f in futures]
 
@@ -304,7 +304,7 @@ class YoloONNX():
 
 if __name__ == '__main__':
 
-
+    print(ort.get_available_providers())
 
     batch_images = 12
 
@@ -319,7 +319,8 @@ if __name__ == '__main__':
     images = [image_rgb] * batch_images
     process_imgs = model(images)
 
-    print('show')
+    print(ort.get_available_providers())
+
     cv2.startWindowThread()
 
     cv2.namedWindow('frame', cv2.WINDOW_AUTOSIZE)

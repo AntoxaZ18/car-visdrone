@@ -1,24 +1,38 @@
-#Проводим валидацию модели
-from ultralytics import YOLO
+import os
+from functools import partial
 from typing import List
-import pandas as pd
+
 import matplotlib.pyplot as plt
+import pandas as pd
 import seaborn as sns
+from ultralytics import YOLO
 
 
-def get_model_metrics(weights_path: str):
-    model = YOLO(f'{weights_path}/train/weights/best.pt')   #загружаем самую лучшую модель
-    metrics = model.val()
+def get_model_metrics(weights_path: str, name: str):
+    metrics = YOLO(weights_path).val()
 
     metrics = {k: [v] for k, v in metrics.results_dict.items()}
 
-    return pd.DataFrame(metrics, index=[weights_path])  #convert to pandas dataframe
+    return pd.DataFrame(metrics, index=[name])  # convert to pandas dataframe
 
 
-def compare_metrics(models_path: List[str]):
-    df = pd.concat([get_model_metrics(f'{path}') for path in models_path])
+def get_metrics(projects_path: str, models_paths: List[str]):
+    weights_paths = [
+        os.path.join(projects_path, path, "train", "weights", "best.pt")
+        for path in models_paths
+    ]
 
-    return df
+    return pd.concat(
+        [
+            get_model_metrics(path, project_name)
+            for path, project_name in zip(weights_paths, models_paths)
+        ]
+    )
+
+
+def create_metrics(project_path: str):
+    return partial(get_metrics, project_path)
+
 
 def plot(dataframe):
     fig, ax = plt.subplots(2, 2, figsize=(12, 12))
@@ -28,8 +42,3 @@ def plot(dataframe):
         ax.bar_label(ax.containers[0], fontsize=10)
 
     plt.show()
-
-
-if __name__ == '__main__':
-    df = compare_metrics(['./drone_s', './drone'])
-    plot(df)

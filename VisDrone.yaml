@@ -7,15 +7,42 @@
 # └── datasets
 #     └── VisDrone  ← downloads here (2.3 GB)
 
-# Train/val/test sets as 1) dir: path/to/imgs, 2) file: path/to/imgs.txt, or 3) list: [path/to/imgs1, path/to/imgs2, ..]
 path: D:\projects\visdrone 
 train: ./dataset/VisDrone2019-DET-train/images # train images (relative to 'path')  6471 images
 val: ./dataset/VisDrone2019-DET-val/images # val images (relative to 'path')  548 images
 test: ./dataset/VisDrone2019-DET-test-dev/images # test images (optional)  1610 images
 
-# Classes
+
 names:
-  0: car
+    0: cars
+
+projects: .\projects
+    
+
+preparing:
+    links: 
+        train: 'https://github.com/ultralytics/yolov5/releases/download/v1.0/VisDrone2019-DET-train.zip'    #format filename:link
+        val: 'https://github.com/ultralytics/yolov5/releases/download/v1.0/VisDrone2019-DET-val.zip'
+
+    path: .\dataset #куда сохраняем датасет
+
+    cls:        #Конвертируем класс 4 оригинального датасета в единственный
+        '4': '0'
+
+    train_yaml: visdrone.yaml   #yaml файл для тренировки
+
+benchmark:
+    path: .\experiments
+
+
+training:
+    epochs: 150
+
+
+export:
+    path: ./onnx
+    
+
 
 # Download script/URL (optional) ---------------------------------------------------------------------------------------
 download: |

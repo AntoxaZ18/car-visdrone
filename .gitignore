@@ -4,6 +4,8 @@
 /VisDrone2019-DET-test-dev
 /VisDrone2019-DET-test-challenge
 /runs
+/projects
+/onnx
 /demo/__pycache__
 /demo/.venv
 /demo/dist

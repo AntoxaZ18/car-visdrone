@@ -7,7 +7,7 @@ model_path = './drone_retrain/train/weights'
 #если чейкпоинта нет, начинаем сначала
 
 
-def train_model():
+def train_model(model_name: str):
 
     if os.path.exists(f'{model_path}/last.pt'):
         print('continue train from last checkpoint')
@@ -15,11 +15,11 @@ def train_model():
         model = YOLO(f'{model_path}/last.pt')
         model.resume = True 
     else:
-        model = YOLO("./models/small/yolo11s.pt") #Загружаем small предобученную модель 
+        model = YOLO(f"./models/small/{model_name}") #Загружаем small предобученную модель 
 
-    results = model.train(
+    model.train(
         data="./VisDrone.yaml", #Описание доработанного датасета с одним классом
-        epochs=200, #Количество эпох обучения
+        epochs=150, #Количество эпох обучения
         imgsz=640, #размер изображения
         batch=16, #размер батча
         patience=20, #количество эпох для ранней остановки
@@ -30,4 +30,4 @@ def train_model():
         plots = True)   #визуализация тренировки
 
 if __name__ == '__main__':
-    train_model()
+    train_model('yolo11s.pt')
