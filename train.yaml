@@ -1,6 +1,5 @@
+names:
+  0: cars
 path: D:\projects\visdrone
 train: .\dataset\VisDrone2019-DET-train\images
 val: .\dataset\VisDrone2019-DET-val\images
-
-names:
-    0: car

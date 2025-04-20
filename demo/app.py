@@ -9,7 +9,7 @@ from PyQt5.QtCore import QThread, pyqtSignal, QTimer, Qt
 from time import time, sleep
 
 from random import randint
-from model_onnx import get_providers
+from Pipeline.model_onnx import get_providers
 from collections import deque
 from queue import Queue, Empty
 from resample_queue import ResampleQueue

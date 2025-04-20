@@ -1,5 +1,5 @@
 from PyQt5.QtCore import QThread, pyqtSignal
-from model_onnx import YoloONNX
+from Pipeline.model_onnx import YoloONNX
 from collections import deque
 from threading import Lock
 import cv2

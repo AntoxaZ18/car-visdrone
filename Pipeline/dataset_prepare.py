@@ -40,6 +40,8 @@ class Dataset:
 
         cls:        #Конвертируем класс 4 оригинального датасета в единственный
             '4': '0'
+        names:
+            0: car
 
         train_yaml: visdrone.yaml   #yaml файл для тренировки
         """
@@ -48,6 +50,7 @@ class Dataset:
         self.clss = kwargs["cls"]
         self.data = kwargs["links"]
         self.train_yaml = kwargs["train_yaml"]
+        self.class_names = kwargs["names"]
 
         # create folder for dataset
         if not os.path.exists(self.dataset_path):
@@ -161,7 +164,7 @@ class Dataset:
             print(f"will be deleted from {path} {len(delta)} files")
 
             def delete_image(file_name):
-                os.unlink(f"{path}\images\{file_name}.jpg")
+                os.unlink(f"{path}/images/{file_name}.jpg")
 
             with ThreadPoolExecutor() as executor:
                 futures = [executor.submit(delete_image, file) for file in delta]
@@ -196,6 +199,7 @@ class Dataset:
         }
 
         data = {k: v for k, v in data.items() if v}
+        data['names'] = self.class_names
 
         # Путь к создаваемому YAML файлу
         yaml_file_path = self.train_yaml

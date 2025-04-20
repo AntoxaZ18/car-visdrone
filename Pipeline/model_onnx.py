@@ -6,11 +6,6 @@ from typing import List, Tuple
 from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
 
 
-from openvino import Core
-
-
-print(ort.__version__)
-
 # def get_providers():
 #     providers = [i for i in ort.get_available_providers() if any(val in i for val in ('CUDA', 'CPU'))]
 

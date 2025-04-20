@@ -13,8 +13,7 @@ val: ./dataset/VisDrone2019-DET-val/images # val images (relative to 'path')  54
 test: ./dataset/VisDrone2019-DET-test-dev/images # test images (optional)  1610 images
 
 
-names:
-    0: cars
+
 
 projects: .\projects
     
@@ -29,15 +28,28 @@ preparing:
     cls:        #Конвертируем класс 4 оригинального датасета в единственный
         '4': '0'
 
-    train_yaml: visdrone.yaml   #yaml файл для тренировки
+    names:
+        0: cars
+
+    train_yaml: train.yaml   #yaml файл для тренировки
 
 benchmark:
     path: .\experiments
 
 
 training:
-    epochs: 150
-
+    epochs: 3
+    imgsz: 640
+    batch: 16
+    degrees: 45
+    patience: 10
+    save_period: 1
+    exist_ok: true
+    deterministic: false
+    plots: true
+    data: 'train.yaml'
+    single_cls: true
+    model: 'yolo11s.pt'
 
 export:
     path: ./onnx

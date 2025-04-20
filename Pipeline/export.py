@@ -1,7 +1,7 @@
 import os
 import cv2
 import shutil
-from model_onnx import YoloONNX
+from Pipeline.model_onnx import YoloONNX
 from ultralytics import YOLO
 from time import time
 from functools import partial

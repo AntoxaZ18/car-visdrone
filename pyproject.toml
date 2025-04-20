@@ -1,0 +1,32 @@
+[project]
+name = "visdrone"
+version = "0.1.0"
+description = "detect cars pipeline on visdrone dataset"
+authors = [
+    {name = "Anton",email = "antoxaz18@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+
+[tool.poetry]
+package-mode = false
+
+
+[tool.poetry.dependencies]
+numpy = "^2"
+PyQt6 = "*"
+torch = { version = "^2.6", source = "torch118" }
+torchvision = { version = "*", source = "torch118" }
+pyyaml = "^6.0.2"
+ultralytics = "^8.3.111"
+onnxruntime = "^1.21.1"
+
+
+[[tool.poetry.source]]
+name = "torch118"
+url = "https://download.pytorch.org/whl/cu118"
+priority = "explicit"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
