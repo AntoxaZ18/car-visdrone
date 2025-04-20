@@ -34,7 +34,7 @@ def create_metrics(project_path: str):
     return partial(get_metrics, project_path)
 
 
-def plot(dataframe):
+def plot_validate(dataframe):
     fig, ax = plt.subplots(2, 2, figsize=(12, 12))
 
     for ax, col in zip(ax.flatten(), dataframe.columns):

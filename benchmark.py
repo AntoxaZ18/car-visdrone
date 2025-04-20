@@ -1,56 +1,94 @@
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
 import gc
+import os
+from itertools import product
+from typing import List
+
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
 
 
-# Benchmark on GPU
-def bench_model(weights_path: str, data_yaml: str, imgsz=640, device = 'cpu', model_format='-'):
+def bench_model(
+    weights_path: str, data_yaml: str, imgsz=640, device="cpu", model_format="-"
+):
+    '''
+    benchmark model on specified device and model format
+    device 'cpu' or 'cuda'
+    model_format corresponds to yolo format
+    '''
     from ultralytics.utils.benchmarks import benchmark
-    bench = benchmark(model=f'{weights_path}/train/weights/best.pt', data=data_yaml, imgsz=imgsz, device=device, format=model_format)
+
+    gc.collect()
+    bench = benchmark(
+        model=weights_path,
+        data=data_yaml,
+        imgsz=imgsz,
+        device=device,
+        format=model_format,
+        verbose=True,
+    )
     if device == 0:
-        device = 'cuda'
-    bench['device'] = device
-    bench['model'] = weights_path
+        device = "cuda"
+    bench["device"] = device
+    bench["model"] = weights_path
 
     return bench
 
-def plot_results(df):
+
+def plot_benchmark(df: pd.DataFrame):
+    '''
+    plot comparing result of benchmarking models
+    '''
     fig, ax = plt.subplots(figsize=(12, 12))
 
-    sns.barplot(x = 'device', y = 'FPS', hue = 'Format', data = df, ax=ax)
+    sns.barplot(x="device", y="FPS", hue="Format", data=df, ax=ax)
     ax.bar_label(ax.containers[0], fontsize=10)
     ax.bar_label(ax.containers[1], fontsize=10)
 
     plt.show()
 
 
-def create_report(img_size, yaml, weight_path, out_path, plot=False):
+def benchmark_report(
+    project_paths: str,
+    projects: List[str],
+    yaml_path: str = None,
+    engines: List[str] = None,
+    devices: List[str] = None,
+    img_size: int = 640,
+):
+    if engines is None:  # bench pytorch format only if no provided
+        engines = ["-"]
 
-    df_gpu = bench_model(weight_path, yaml, imgsz=img_size, device=0, model_format='-')
-    gc.collect()
-    df_cpu = bench_model(weight_path, yaml, imgsz=img_size, device='cpu', model_format='-')
-    gc.collect()
+    if devices is None:
+        devices = ["cpu"]
 
-    df_gpu_onx = bench_model(weight_path, yaml, imgsz=img_size, device=0, model_format='onnx')
-    gc.collect()
-    df_cpu_onnx = bench_model(weight_path, yaml, imgsz=img_size, device='cpu', model_format='onnx')
-    gc.collect()
+    if not isinstance(projects, List):
+        raise TypeError(
+            f"Provide list of projects to benchmark, found type: {type(projects)}"
+        )
 
-    df = pd.concat([df_gpu, df_cpu, df_gpu_onx, df_cpu_onnx])
+    if not isinstance(devices, List):
+        raise TypeError(
+            f"Provide list of devices to benchmark, found type: {type(devices)}"
+        )
 
-    df.to_csv(f'{out_path}.csv')
+    all_bencmarks = product(projects, engines, devices)
 
-    if plot:
-        plot_results(df)
+    bench_results = []
 
+    for project, engine, device in all_bencmarks:
+        weight_path = os.path.join(
+            project_paths, project, "train", "weights", "best.pt"
+        )
+        print(weight_path)
+        bench_results.append(
+            bench_model(
+                weight_path,
+                yaml_path,
+                imgsz=img_size,
+                device=device,
+                model_format=engine,
+            )
+        )
 
-
-if __name__ == '__main__':
-
-    image_size = 640
-    yaml = 'VisDrone.yaml'
-    weight_path = './drone'
-
-    # create_report(image_size, yaml, weight_path, 'small', plot=True)
+    return pd.concat(bench_results)
