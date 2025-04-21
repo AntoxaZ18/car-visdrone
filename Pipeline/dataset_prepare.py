@@ -233,7 +233,7 @@ class Dataset:
             y_max = (y_center + height / 2) * image_height
             return int(x_min), int(y_min), int(x_max), int(y_max), class_id
 
-        dirs = [i for i in os.listdir(self.dataset_path) if os.path.isdir(i)]
+        dirs = [i for i in os.listdir(self.dataset_path) if os.path.isdir(f'{self.dataset_path}/{i}')]
 
         relative_path = f"{self.dataset_path}/{random.choice(dirs)}"
 
