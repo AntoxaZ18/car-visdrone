@@ -18,7 +18,7 @@ preparing:
 training:
     path: *projects
     yolo:
-        epochs: 10
+        epochs: 300
         imgsz: 640
         batch: 16
         degrees: 45
