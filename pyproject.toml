@@ -22,6 +22,7 @@ ultralytics = "^8.3.111"
 onnxruntime = "^1.21.1"
 onnx = "^1.17.0"
 onnxslim = "^0.1.50"
+ipykernel = "^6.29.5"
 
 
 [[tool.poetry.source]]
