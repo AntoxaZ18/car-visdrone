@@ -30,8 +30,8 @@ def get_metrics(projects_path: str, models_paths: List[str]):
     )
 
 
-def create_metrics(project_path: str):
-    return partial(get_metrics, project_path)
+def create_metrics(path: str):
+    return partial(get_metrics, path)
 
 
 def plot_validate(dataframe):

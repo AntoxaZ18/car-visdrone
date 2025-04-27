@@ -1,5 +1,5 @@
 [project]
-name = "visdrone"
+name = "visdrone_cars"
 version = "0.1.0"
 description = "detect cars pipeline on visdrone dataset"
 authors = [
@@ -20,6 +20,8 @@ torchvision = { version = "*", source = "torch118" }
 pyyaml = "^6.0.2"
 ultralytics = "^8.3.111"
 onnxruntime = "^1.21.1"
+onnx = "^1.17.0"
+onnxslim = "^0.1.50"
 
 
 [[tool.poetry.source]]

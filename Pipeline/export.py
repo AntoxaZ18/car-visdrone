@@ -8,22 +8,22 @@ from functools import partial
 
 
 def export_to_onnx(
-    projects_path: str,
+    path: str,
     project_name: str,
     output_folder: str = "",
     export_model_name: str = "",
 ):
     """
-    projects_path - путь к проекту
-    output_folder - путь куда экспортировать модель
-    export_model_name - название экспортируемой модели
+    projects_path - projects folder
+    output_folder - output folder
+    export_model_name - name of exported model
     """
 
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
     model_path = os.path.join(
-        projects_path, project_name, "train", "weights", "best.pt"
+        path, project_name, "train", "weights", "best.pt"
     )
 
     model = YOLO(model_path)  # загружаем самую лучшую модель
@@ -44,11 +44,11 @@ def export_to_onnx(
     shutil.move(converted_path, output_path)
 
 
-def create_export(project_path: str, output_folder: str = "."):
+def create_export(path: str, output_folder: str = "."):
     """
     create partially initailized export function
     """
-    return partial(export_to_onnx, project_path, output_folder=output_folder)
+    return partial(export_to_onnx, path, output_folder=output_folder)
 
 
 def bench_ort_onnx(model_path: str, image_path: str, device="cpu"):
@@ -58,7 +58,7 @@ def bench_ort_onnx(model_path: str, image_path: str, device="cpu"):
     frame = cv2.imread(image_path)
     batch_images = [frame] * batch_size
 
-    model = YoloONNX(model_path, device=device, batch=batch_size)
+    model = YoloONNX(model_path, device=device, threads=batch_size)
 
     def warmup(onnx_model, images, iterations=20):
         for i in range(iterations):

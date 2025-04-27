@@ -1,0 +1,44 @@
+projects: &projects .\projects
+    
+
+preparing:
+    links: 
+        train: 'https://github.com/ultralytics/yolov5/releases/download/v1.0/VisDrone2019-DET-train.zip'    #format filename:link
+        val: 'https://github.com/ultralytics/yolov5/releases/download/v1.0/VisDrone2019-DET-val.zip'
+
+    path: .\dataset #куда сохраняем датасет
+
+    cls:        #Конвертируем класс 4 оригинального датасета в единственный
+        '4': '0'
+    names:
+        0: cars
+
+    train_yaml: &yolo_cfg train.yaml   #полученный yaml файл для тренировки
+
+training:
+    path: *projects
+    yolo:
+        epochs: 10
+        imgsz: 640
+        batch: 16
+        degrees: 45
+        patience: 10
+        save_period: 1
+        exist_ok: true
+        deterministic: false
+        plots: true
+        data: *yolo_cfg
+        single_cls: true
+        model: 'yolo11s.pt'
+
+validate:
+    path: *projects
+
+benchmark:
+    path: *projects
+    yaml: *yolo_cfg
+
+export:
+    path: *projects
+    
+

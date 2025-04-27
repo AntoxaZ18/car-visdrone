@@ -4,6 +4,7 @@ from itertools import product
 from typing import List
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
 
@@ -11,11 +12,11 @@ import seaborn as sns
 def bench_model(
     weights_path: str, data_yaml: str, imgsz=640, device="cpu", model_format="-"
 ):
-    '''
+    """
     benchmark model on specified device and model format
     device 'cpu' or 'cuda'
     model_format corresponds to yolo format
-    '''
+    """
     from ultralytics.utils.benchmarks import benchmark
 
     gc.collect()
@@ -35,23 +36,37 @@ def bench_model(
     return bench
 
 
-def plot_benchmark(df: pd.DataFrame):
-    '''
-    plot comparing result of benchmarking models
-    '''
-    fig, ax = plt.subplots(figsize=(12, 12))
+def plot_benchmark(df: pd.DataFrame, y: str = "FPS"):
+    """
+    plot comparing result of benchmarking models on different devices
+    y - metric to plot
+    """
 
-    sns.barplot(x="device", y="FPS", hue="Format", data=df, ax=ax)
-    ax.bar_label(ax.containers[0], fontsize=10)
-    ax.bar_label(ax.containers[1], fontsize=10)
+    # sanity check
+    if y not in df.columns:
+        raise ValueError(f"{y} not found in columns {df.columns}")
 
+    all_devices = df["device"].unique()
+
+    fig, ax = plt.subplots(ncols=len(all_devices), figsize=(6 * len(all_devices), 6))
+    if len(all_devices) == 1:
+        ax = np.expand_dims(ax, 0)
+
+    for axe, device in zip(ax.flatten(), all_devices):
+        axe.set_title(device)
+        ax = sns.barplot(
+            x="Format", y=y, hue="model", data=df[df["device"] == device], ax=axe
+        )
+        for label in ax.containers:
+            ax.bar_label(label)
+            
     plt.show()
 
 
 def benchmark_report(
-    project_paths: str,
-    projects: List[str],
-    yaml_path: str = None,
+    path: str,
+    yaml: str,
+    projects: List[str] = None,
     engines: List[str] = None,
     devices: List[str] = None,
     img_size: int = 640,
@@ -78,17 +93,24 @@ def benchmark_report(
 
     for project, engine, device in all_bencmarks:
         weight_path = os.path.join(
-            project_paths, project, "train", "weights", "best.pt"
+            path, project, "train", "weights", "best.pt"
         )
         print(weight_path)
         bench_results.append(
             bench_model(
                 weight_path,
-                yaml_path,
+                yaml,
                 imgsz=img_size,
                 device=device,
                 model_format=engine,
             )
         )
 
-    return pd.concat(bench_results)
+    df = pd.concat(bench_results)
+
+    return df
+
+
+# if __name__ == "__main__":
+#     df = pd.read_csv("test.csv")
+#     plot_benchmark(df, y="Inference time (ms/im)")

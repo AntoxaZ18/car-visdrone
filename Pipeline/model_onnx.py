@@ -18,12 +18,11 @@ from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
 
 
 class YoloONNX():
-    def __init__(self, path: str, session_options=None, device='cpu', batch=1, confidence=0.5) -> None:
+    def __init__(self, path: str, session_options=None, device='cpu', threads=1, confidence=0.5) -> None:
 
         sess_options = ort.SessionOptions()
 
         sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        # # sess_options.add_session_config_entry("session.intra_op.allow_spinning", "0")
 
         sess_options.execution_mode  = ort.ExecutionMode.ORT_SEQUENTIAL
         sess_options.inter_op_num_threads = 3
@@ -44,14 +43,13 @@ class YoloONNX():
 
         self.input_width = 640
         self.input_height = 640
-        self.batch = batch
 
         self.iou = 0.8
         self.confidence_thres = confidence
         self.input_size = (640, 640)
         self.classes = ['cars', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
         self.color_palette = np.random.uniform(0, 255, size=(len(self.classes), 3))
-        self.executor = ThreadPoolExecutor(max_workers=self.batch)
+        self.executor = ThreadPoolExecutor(max_workers=threads)
 
 
     def _image_preprocess(self, bgr_frame) -> np.ndarray:
@@ -282,7 +280,7 @@ if __name__ == '__main__':
     nano = 'yolo11n_5epoch_16batch640.onnx'
     small = 'y11_100ep16b640.onnx'
 
-    model = YoloONNX(small, device='gpu', batch = batch_images)
+    model = YoloONNX(small, device='gpu', threads = batch_images)
     frame = cv2.imread('photo.jpg')
 
     images = [frame] * 8

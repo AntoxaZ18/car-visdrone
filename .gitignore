@@ -1,19 +1,10 @@
 *.pt
-/VisDrone2019-DET-val
-/VisDrone2019-DET-train
-/VisDrone2019-DET-test-dev
-/VisDrone2019-DET-test-challenge
+/dataset
 /runs
 /projects
+/onnx_models
 /onnx
-/demo/__pycache__
-/demo/.venv
-/demo/dist
-/demo/*.exe
-/demo/*.spec
-/demo/build
-/drone
-/drone_s
+/demo
 /dataset
 /drone
 /.venv
@@ -21,3 +12,4 @@
 *.onnx
 *.pyc
 *.mp4
+*.log
