@@ -17,6 +17,9 @@ def get_model_metrics(weights_path: str, name: str):
 
 
 def get_metrics(projects_path: str, models_paths: List[str]):
+    '''
+    return metrics as pandas dataframe for all provided models
+    '''
     weights_paths = [
         os.path.join(projects_path, path, "train", "weights", "best.pt")
         for path in models_paths
@@ -31,6 +34,9 @@ def get_metrics(projects_path: str, models_paths: List[str]):
 
 
 def create_metrics(path: str):
+    '''
+    return partially inited metrics function
+    '''
     return partial(get_metrics, path)
 
 

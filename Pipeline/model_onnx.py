@@ -1,10 +1,10 @@
-import numpy as np
-import onnxruntime as ort
-import cv2
+from concurrent.futures import ALL_COMPLETED, ThreadPoolExecutor, wait
 from time import time
 from typing import List, Tuple
-from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
 
+import cv2
+import numpy as np
+import onnxruntime as ort
 
 # def get_providers():
 #     providers = [i for i in ort.get_available_providers() if any(val in i for val in ('CUDA', 'CPU'))]
@@ -17,27 +17,29 @@ from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
 #     return providers
 
 
-class YoloONNX():
-    def __init__(self, path: str, session_options=None, device='cpu', threads=1, confidence=0.5) -> None:
-
+class YoloONNX:
+    def __init__(
+        self, path: str, session_options=None, device="cpu", threads=1, confidence=0.5
+    ) -> None:
         sess_options = ort.SessionOptions()
 
-        sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        sess_options.graph_optimization_level = (
+            ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        )
 
-        sess_options.execution_mode  = ort.ExecutionMode.ORT_SEQUENTIAL
+        sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
         sess_options.inter_op_num_threads = 3
 
+        sess_providers = ['CPUExecutionProvider']
+        if device == 'gpu' or device == 0:
+            sess_providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+            self.mode = 'gpu'
+        else:
+            self.mode = 'cpu'
 
-        # sess_providers = ['CPUExecutionProvider']
-        # if device == 'gpu' or device == 0:
-        #     sess_providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-        #     self.mode = 'gpu'
-        # else:
-        #     self.mode = 'cpu'
-        
-        sess_providers = ['OpenVINOExecutionProvider']
-
-        self.session = ort.InferenceSession(path, providers=sess_providers, sess_options=sess_options)    #'CUDAExecutionProvider',
+        self.session = ort.InferenceSession(
+            path, providers=sess_providers, sess_options=sess_options
+        )  #'CUDAExecutionProvider',
         model_inputs = self.session.get_inputs()
         input_shape = model_inputs[0].shape
 
@@ -47,10 +49,9 @@ class YoloONNX():
         self.iou = 0.8
         self.confidence_thres = confidence
         self.input_size = (640, 640)
-        self.classes = ['cars', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+        self.classes = ["car"]
         self.color_palette = np.random.uniform(0, 255, size=(len(self.classes), 3))
         self.executor = ThreadPoolExecutor(max_workers=threads)
-
 
     def _image_preprocess(self, bgr_frame) -> np.ndarray:
         """image preprocessing
@@ -58,10 +59,9 @@ class YoloONNX():
         including resizing to yolo input shape
         add batch dimension and normalized to 0...1 range
         convert from image to tensor view
-        # """
+        #"""
         self.img_height, self.img_width = bgr_frame.shape[:2]
         rgb_img = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
-
 
         img, pad = self.letterbox(rgb_img, (self.input_width, self.input_height))
 
@@ -76,8 +76,10 @@ class YoloONNX():
 
         # Return the preprocessed image data
         return image_data, pad
-    
-    def letterbox(self, img: np.ndarray, new_shape: Tuple[int, int] = (640, 640)) -> Tuple[np.ndarray, Tuple[int, int]]:
+
+    def letterbox(
+        self, img: np.ndarray, new_shape: Tuple[int, int] = (640, 640)
+    ) -> Tuple[np.ndarray, Tuple[int, int]]:
         """
         Resize and reshape images while maintaining aspect ratio by adding padding.
 
@@ -96,17 +98,24 @@ class YoloONNX():
 
         # Compute padding
         new_unpad = int(round(shape[1] * r)), int(round(shape[0] * r))
-        dw, dh = (new_shape[1] - new_unpad[0]) / 2, (new_shape[0] - new_unpad[1]) / 2  # wh padding
+        dw, dh = (
+            (new_shape[1] - new_unpad[0]) / 2,
+            (new_shape[0] - new_unpad[1]) / 2,
+        )  # wh padding
 
         if shape[::-1] != new_unpad:  # resize
             img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
         top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
         left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
-        img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(114, 114, 114))
+        img = cv2.copyMakeBorder(
+            img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(114, 114, 114)
+        )
 
         return img, (top, left)
 
-    def draw_detections(self, img: np.ndarray, box: List[float], score: float, class_id: int) -> None:
+    def draw_detections(
+        self, img: np.ndarray, box: List[float], score: float, class_id: int
+    ) -> None:
         """
         Draw bounding boxes and labels on the input image based on the detected objects.
 
@@ -129,7 +138,9 @@ class YoloONNX():
         label = f"{self.classes[class_id]}: {score:.2f}"
 
         # Calculate the dimensions of the label text
-        (label_width, label_height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+        (label_width, label_height), _ = cv2.getTextSize(
+            label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1
+        )
 
         # Calculate the position of the label text
         label_x = x1
@@ -137,14 +148,28 @@ class YoloONNX():
 
         # Draw a filled rectangle as the background for the label text
         cv2.rectangle(
-            img, (label_x, label_y - label_height), (label_x + label_width, label_y + label_height), color, cv2.FILLED
+            img,
+            (label_x, label_y - label_height),
+            (label_x + label_width, label_y + label_height),
+            color,
+            cv2.FILLED,
         )
 
         # Draw the label text on the image
-        cv2.putText(img, label, (label_x, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
+        cv2.putText(
+            img,
+            label,
+            (label_x, label_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 0, 0),
+            1,
+            cv2.LINE_AA,
+        )
 
-
-    def postprocess(self, input_image: np.ndarray, output: List[np.ndarray], pad: Tuple[int, int]) -> np.ndarray:
+    def postprocess(
+        self, input_image: np.ndarray, output: List[np.ndarray], pad: Tuple[int, int]
+    ) -> np.ndarray:
         """
         Perform post-processing on the model's output to extract and visualize detections.
 
@@ -167,19 +192,21 @@ class YoloONNX():
         input_height = self.input_size[0]
         input_width = self.input_size[0]
 
-        gain = np.float32(min(input_height / self.img_height, input_width / self.img_width))
+        gain = np.float32(
+            min(input_height / self.img_height, input_width / self.img_width)
+        )
         outputs[:, 0] -= pad[1]
         outputs[:, 1] -= pad[0]
 
-        #find max score for prediction
+        # find max score for prediction
         max_scores = np.amax(outputs[:, 4:], axis=1)
-        #filter prediction with result more than confidence thresh
+        # filter prediction with result more than confidence thresh
         results = outputs[max_scores > self.confidence_thres]
-        #find class ids
+        # find class ids
         class_ids = np.argmax(results[:, 4:], axis=1).tolist()
         scores = np.amax(results[:, 4:], axis=1).tolist()
-        
-        #convert coordinates of boxes
+
+        # convert coordinates of boxes
         x = results[:, 0]
         y = results[:, 1]
         w = results[:, 2]
@@ -207,21 +234,14 @@ class YoloONNX():
         # Return the modified input image
         return input_image
 
-
     def __call__(self, images: np.ndarray) -> np.ndarray:
-        """return image of object if they are on image. Return only one object with highest score"""
 
-        # if self.mode == 'gpu':
-        #     res = self.call_gpu(images)
-        #     return res
-        # else:
-        return self.call_cpu(images)
-    
-    def call_gpu(self, images:List[np.ndarray]):
+        if self.mode == 'gpu':
+            return self.call_gpu(images)
+        else:
+            return self.call_cpu(images)
 
-        # futures = [self.executor.submit(self._image_preprocess, image) for image in images]
-        # wait(futures, return_when=ALL_COMPLETED)
-        # tensor_images = [f.result() for f in futures]
+    def call_gpu(self, images: List[np.ndarray]):
 
         tensor_images = [self._image_preprocess(image) for image in images]
 
@@ -231,17 +251,18 @@ class YoloONNX():
         imgs = [img for (img, _) in tensor_images]
         pads = [pad for (_, pad) in tensor_images]
 
-
         batch = np.concatenate(imgs, axis=0)
-        
+
         outputs = self.session.run([output_name], {input_name: batch})
-        
+
         predictions = outputs[0]
 
-        results = [self.postprocess(image, np.expand_dims(predictions[idx], axis=0), pad) for image, idx, pad in zip(images, iter(range(predictions.shape[0])), pads)]
+        results = [
+            self.postprocess(image, np.expand_dims(predictions[idx], axis=0), pad)
+            for image, idx, pad in zip(images, iter(range(predictions.shape[0])), pads)
+        ]
 
         return results
-
 
     def cpu_run_session(self, image, output_name, input_name):
         tensor_image, pad = self._image_preprocess(image)
@@ -249,11 +270,14 @@ class YoloONNX():
 
         return predictions, pad
 
-    def call_cpu(self, images:List[np.ndarray]):
+    def call_cpu(self, images: List[np.ndarray]):
         output_name = self.session.get_outputs()[0].name
         input_name = self.session.get_inputs()[0].name
 
-        futures = [self.executor.submit(self.cpu_run_session, image, output_name, input_name) for image in images]
+        futures = [
+            self.executor.submit(self.cpu_run_session, image, output_name, input_name)
+            for image in images
+        ]
         wait(futures, return_when=ALL_COMPLETED)
 
         results = [f.result() for f in futures]
@@ -261,54 +285,11 @@ class YoloONNX():
         model_outputs = [outputs for (outputs, _) in results]
         pads = [pad for (_, pad) in results]
 
-        results = [self.postprocess(image, output, pad) for output, image, pad in zip(model_outputs, images, pads)]
+        results = [
+            self.postprocess(image, output, pad)
+            for output, image, pad in zip(model_outputs, images, pads)
+        ]
 
         return results
-        
 
-if __name__ == '__main__':
-
-    import sys
-
-    print(ort.get_available_providers())
-    # print(Core().available_devices)
-
-    sys.exit(0)
-
-    batch_images = 8
-
-    nano = 'yolo11n_5epoch_16batch640.onnx'
-    small = 'y11_100ep16b640.onnx'
-
-    model = YoloONNX(small, device='gpu', threads = batch_images)
-    frame = cv2.imread('photo.jpg')
-
-    images = [frame] * 8
-
-
-
-
-    # print('load ok')
-    def warmup(model, images, iterations=20):
-        for i in range(iterations):
-            _ = model(images)
-        print('warmup ok')
-
-
-    def bench(image):
-        start = time()
-        range_iter = 50
-        images = [image] * batch_images
-        for _ in range(range_iter):
-            frame_boxes = model(images)
-        print(f'FPS: {1 / ((time() - start) / (range_iter * batch_images)):.3f}')
-
-
-    warmup(model, images)
-
-    results = model(images)
-
-    print(len(results))
-
-    # bench(frame)
 

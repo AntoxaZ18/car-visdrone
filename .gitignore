@@ -5,6 +5,8 @@
 /onnx_models
 /onnx
 /demo
+/Pipeline/__pycache__
+/__pycache__
 /dataset
 /drone
 /.venv

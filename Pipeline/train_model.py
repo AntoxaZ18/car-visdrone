@@ -43,6 +43,9 @@ class Trainer:
         self.train_cfg["project"] = project_path
 
     def metrics(self):
+        '''
+        return metrics as pandas dataframe
+        '''
         return pd.read_csv(
             os.path.join(self.projects_path, self.project_name, "train", "results.csv")
         )

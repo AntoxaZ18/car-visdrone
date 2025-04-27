@@ -110,7 +110,3 @@ def benchmark_report(
 
     return df
 
-
-# if __name__ == "__main__":
-#     df = pd.read_csv("test.csv")
-#     plot_benchmark(df, y="Inference time (ms/im)")

@@ -1,10 +1,12 @@
 import os
-import cv2
 import shutil
-from Pipeline.model_onnx import YoloONNX
-from ultralytics import YOLO
-from time import time
 from functools import partial
+from time import time
+
+import cv2
+from ultralytics import YOLO
+
+from Pipeline.model_onnx import YoloONNX
 
 
 def export_to_onnx(
@@ -22,9 +24,7 @@ def export_to_onnx(
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
-    model_path = os.path.join(
-        path, project_name, "train", "weights", "best.pt"
-    )
+    model_path = os.path.join(path, project_name, "train", "weights", "best.pt")
 
     model = YOLO(model_path)  # загружаем самую лучшую модель
 
