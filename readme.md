@@ -41,6 +41,8 @@
   3. Обучение можно проводить при помощи jupyter или py файлов. Процесс обучения модели находится в блокноте train.ipynb
   4. Пример инференса модели ![plot](result.jpg)
   5. Презентация и отчет по работе [here](./report.pdf)
+  6. Файл loss.py c wasserstein_loss (NWD loss)для замены ultralytics utils.loss.py 
+  7. [Репозиторий](https://github.com/AntoxaZ18/onnx_demo) с демо программой 
     
 
 
