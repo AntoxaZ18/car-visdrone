@@ -36,7 +36,7 @@ class Dataset:
         train: 'https://github.com/ultralytics/yolov5/releases/download/v1.0/VisDrone2019-DET-train.zip'    #format filename:link
         val: 'https://github.com/ultralytics/yolov5/releases/download/v1.0/VisDrone2019-DET-val.zip'
 
-        path: .\dataset #куда сохраняем датасет
+        path: dataset #куда сохраняем датасет
 
         cls:        #Конвертируем класс 4 оригинального датасета в единственный
             '4': '0'
@@ -75,7 +75,7 @@ class Dataset:
 
         with ThreadPoolExecutor() as pool:
             futures = [
-                pool.submit(download_file, link, f"{self.dataset_path}\{filename}.zip")
+                pool.submit(download_file, link, f"{self.dataset_path}/{filename}.zip")
                 for filename, link in self.data.items()
             ]
             wait(futures, timeout=None, return_when=ALL_COMPLETED)

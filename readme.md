@@ -15,6 +15,7 @@
 - Python 3.11 или выше
 - CUDA версии 11.8
 - `poetry` менеджер пакетов
+- `docker` если используется контейнер
 
 ### Шаги установки на Windows
 1. Клонируйте репозиторий:
@@ -25,7 +26,7 @@
 2. Установка при помощи пакетного менеджера
    Если хотите чтобы вирутальная среда создалась в папке с проектом
    ```Powershell
-   poetry config settings.virtualenvs.in-project true
+   poetry config virtualenvs.in-project true
    ```
    Создайте преднастроенную виртуальную среду
    ```Powershell
@@ -34,6 +35,10 @@
    Активируйте среду при помощи poetry (опционально)
    ```Powershell
    poetry env activate
+   ```
+   Либо используя make 
+   ```Powershell
+      make venv_init
    ```
 ### Использование
   1. Настройки проекта хранятся в yaml файле, где прописаны конфигурации каждого этапа\
@@ -49,6 +54,38 @@
   5. Презентация и отчет по работе [here](./report.pdf)
   6. Файл loss.py c wasserstein_loss (NWD loss)для замены ultralytics utils.loss.py 
   7. [Репозиторий](https://github.com/AntoxaZ18/onnx_demo) с демо программой 
+
+### Использование совместно с docker
+   1. Для сборки образа используйте команду
+   ```Powershell
+      docker buildx build . -t cuda11 
+   ```
+   либо
+   ```Powershell
+      make docker_build
+   ```
+   2. Для запуска контейнера используйте команду
+   ```Powershell
+      docker run -p 8888:8888 --rm --gpus all -v .:/app cuda11
+   ```
+   либо
+   ```Powershell
+      make docker_run
+   ```
+   После запуска активируется сервер jupyter. Файлы автоматически подмонтируются. Все модели сохранятся на хосте
+   Использовать ссылку для подключения ![plot](link.png)
+   Контейнер автоматически удалится после окончания работы
+   3. Очистка системы
+   Для удаления образа из системы используйте команду 
+   ```Powershell
+      docker rmi cuda11:latest -f
+   ```
+   либо 
+   ```Powershell
+      make docker_clean
+   ```
+
+   Для получения справки по таргетам make используйте make help
     
 
 

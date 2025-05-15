@@ -14,7 +14,6 @@ package-mode = false
 
 [tool.poetry.dependencies]
 numpy = "^2"
-PyQt6 = "*"
 torch = { version = "^2.6", source = "torch118" }
 torchvision = { version = "*", source = "torch118" }
 pyyaml = "^6.0.2"

@@ -10,10 +10,15 @@ apt install -y software-properties-common
 # Установка Python 3.12 и настройка его как версии по умолчанию
 RUN add-apt-repository ppa:deadsnakes/ppa && \
     apt update && \
-    apt install -y python3.12 curl && \
+    apt install -y python3.12 curl wget libgl1 && \
     update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 && \
     update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 2 && \
     update-alternatives --set python3 /usr/bin/python3.12 && \
+    #устанавливаем сервер без poetry так как по идее он не обязателен
+    wget https://bootstrap.pypa.io/get-pip.py && \
+    python3 get-pip.py && \
+    pip3 install jupyterlab && \  
+    #Очищаем кэш пакетного менеджера
     apt clean && \
     rm -rf /var/lib/apt/lists/*
     
@@ -37,6 +42,10 @@ RUN poetry config virtualenvs.create false && \
     # Удаление временных файлов
     rm -rf /root/.cache
 
-EXPOSE 8888
+COPY Pipeline ./Pipeline
+COPY pipeline.yaml train.ipynb ./
 
-CMD ["poetry", "run", "ipython"]
+#открываем порт
+EXPOSE 8888 
+
+CMD ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root"]
